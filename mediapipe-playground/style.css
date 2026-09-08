@@ -1,0 +1,529 @@
+/* ═══════════════════════════════════════════════════════════
+   MediaPipe Bench
+   Direction: optical bench. The camera feed is the only saturated
+   object on the page; every control is monochrome measurement chrome.
+   Channel colours are data, not decoration: colour maps a model to
+   its trace on the video and to its numbers in the readout.
+   Radius lock: 2px on every control and panel, 0 on the viewport.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --paper:      #ECEDEF;
+  --panel:      #FFFFFF;
+  --panel-2:    #F4F5F7;
+  --rule:       #D2D6DC;
+  --rule-soft:  #E4E7EB;
+  --ink:        #14171C;
+  --ink-2:      #565E6C;
+  --ink-3:      #8B94A2;
+  --vp-bg:      #0E1114;
+  --focus:      #1F2937;
+  --danger:     #C4341F;
+
+  --r: 2px;
+  --rail: 3px;
+
+  --font-display: "Space Grotesk", "IBM Plex Sans KR", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans KR", ui-monospace, monospace;
+
+  --topbar-h: 68px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:     #0F1216;
+    --panel:     #171B21;
+    --panel-2:   #1C2129;
+    --rule:      #2A313B;
+    --rule-soft: #232932;
+    --ink:       #E8EBEF;
+    --ink-2:     #99A3B1;
+    --ink-3:     #6B7481;
+    --vp-bg:     #08090B;
+    --focus:     #C9D2DE;
+    --danger:    #FF8A70;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  /* Korean wraps on syllables by default, which splits words mid-morpheme. */
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 4px 2px;
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: var(--r);
+  color: var(--ink-2);
+  background: var(--panel);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── topbar ─────────────────────────────────────────────── */
+
+.topbar {
+  flex: 0 0 auto;
+  min-height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+.brand-mark {
+  align-self: center;
+  width: 11px; height: 11px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--panel);
+  flex: 0 0 auto;
+}
+
+.brand-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+}
+
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+
+/* ── buttons ────────────────────────────────────────────── */
+
+.btn {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 7px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
+}
+.btn:hover { background: var(--panel-2); border-color: var(--ink-3); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .38; cursor: not-allowed; transform: none; }
+
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.btn[aria-pressed="true"] kbd { background: transparent; border-color: rgba(150, 160, 175, .45); color: inherit; }
+
+.btn-primary {
+  background: var(--ink);
+  color: var(--panel);
+  border-color: var(--ink);
+}
+.btn-primary:hover { background: var(--ink-2); border-color: var(--ink-2); }
+
+.btn-wide { width: 100%; justify-content: center; }
+
+/* ── bench shell ────────────────────────────────────────── */
+
+.bench {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr) 324px;
+}
+
+.pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+.pane-rack { border-right: 1px solid var(--rule); }
+.pane-read { border-left: 1px solid var(--rule); }
+.pane-view { background: var(--paper); padding: 18px; }
+
+.pane-head {
+  flex: 0 0 auto;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.pane-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.pane-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ── channel rack ───────────────────────────────────────── */
+
+.rack {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* Flex, not grid: the colour rail has to run the full height of a strip whose
+   row count changes with its state, and an implicit grid cannot span to -1. */
+.strip {
+  --ch: var(--ink-3);
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  padding: 11px 14px;
+  background: none;
+  border: 0;
+  border-left: var(--rail) solid var(--rule);
+  border-bottom: 1px solid var(--rule-soft);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-left-color 120ms ease;
+}
+.strip:hover { background: var(--panel-2); }
+.strip:last-child { border-bottom: 0; }
+
+.strip[data-state="on"],
+.strip[data-state="loading"] { border-left-color: var(--ch); }
+
+.strip-body { flex: 1 1 auto; min-width: 0; }
+
+/* Each line of a strip is its own row. As inline spans they collapse into one
+   run of text and break mid-phrase. */
+.strip-name, .strip-api, .strip-detail { display: block; }
+
+.strip-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--ink-2);
+  transition: color 120ms ease;
+}
+.strip[data-state="on"] .strip-name { color: var(--ink); }
+
+.strip-api {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 1px;
+  transition: color 120ms ease;
+}
+.strip[data-state="on"] .strip-api { color: var(--ch); }
+
+.strip-detail {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.strip-key {
+  flex: 0 0 auto;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 2px 5px;
+  line-height: 1;
+}
+
+.strip-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  margin-top: 6px;
+  color: var(--ink-2);
+  display: none;
+}
+.strip[data-state="loading"] .strip-status,
+.strip[data-state="error"] .strip-status { display: block; }
+.strip[data-state="error"] .strip-status { color: var(--danger); }
+
+/* loading: a moving bar shaped like the final row, not a spinner */
+.strip-progress {
+  height: 2px;
+  margin-top: 6px;
+  background: var(--rule-soft);
+  overflow: hidden;
+  display: none;
+}
+.strip[data-state="loading"] .strip-progress { display: block; }
+.strip-progress::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 34%;
+  background: var(--ch);
+  animation: sweep 1100ms cubic-bezier(.5, 0, .5, 1) infinite;
+}
+@keyframes sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(330%); }
+}
+
+.rack-foot {
+  flex: 0 0 auto;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.rack-hint {
+  margin: 9px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ── viewport ───────────────────────────────────────────── */
+
+.viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  background: var(--vp-bg);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#video, #overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+#video { display: none; }
+.viewport[data-live="true"] #video { display: block; }
+
+#overlay { pointer-events: none; }
+
+/* Only the video is flipped in CSS. The overlay already draws in mirrored
+   coordinates, so flipping it too would reverse every text label. */
+.viewport[data-mirror="true"] #video { transform: scaleX(-1); }
+
+.vp-state {
+  position: relative;
+  z-index: 2;
+  max-width: 36ch;
+  text-align: center;
+  padding: 28px;
+  color: #E8EBEF;
+}
+.vp-state[hidden] { display: none; }
+.viewport[data-live="true"] #vp-idle { display: none; }
+
+.vp-state-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.vp-state-body {
+  margin: 0 0 18px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #99A3B1;
+}
+.vp-state .btn {
+  background: #E8EBEF; color: #14171C; border-color: #E8EBEF;
+}
+.vp-state .btn:hover { background: #FFFFFF; border-color: #FFFFFF; }
+.vp-state-error .vp-state-title { color: #FF8A70; }
+
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 34px;
+  margin-top: 10px;
+  padding: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.statusbar::-webkit-scrollbar { display: none; }
+
+.stat { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.stat-end { margin-left: auto; }
+.stat-k { color: var(--ink-3); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.stat-v { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+
+/* ── readout ────────────────────────────────────────────── */
+
+.readout { flex: 0 0 auto; overflow-y: auto; }
+.readout:not(:empty) { flex: 1 1 auto; }
+
+.readout-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+.readout-empty[hidden] { display: none; }
+
+.card {
+  --ch: var(--ink-3);
+  border-bottom: 1px solid var(--rule-soft);
+  padding: 12px 16px 14px 13px;
+  border-left: var(--rail) solid var(--ch);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.card-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ch);
+}
+
+.card-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rows { display: grid; gap: 4px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.row-k { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-v { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+
+/* score bar, no filled background track */
+.bar {
+  grid-column: 1 / -1;
+  height: 2px;
+  margin: 1px 0 4px;
+  background: linear-gradient(to right, var(--ch) var(--p, 0%), var(--rule-soft) var(--p, 0%));
+}
+
+.card-none {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* A channel with nothing to report takes less room than one with numbers. */
+.card:has(.card-none) { padding-top: 10px; padding-bottom: 11px; }
+.card:has(.card-none) .card-head { margin-bottom: 4px; }
+
+/* ── responsive ─────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+  .bench { grid-template-columns: 258px minmax(0, 1fr) 278px; }
+}
+
+@media (max-width: 900px) {
+  /* Release the locked viewport height, otherwise the stacked panes are
+     squeezed into one screen and overlap each other. */
+  html, body { height: auto; }
+  body { display: block; overflow: visible; }
+  .topbar { padding: 12px 14px; flex-wrap: wrap; }
+  .brand-sub { display: none; }
+  .bench { display: flex; flex-direction: column; }
+  .pane-rack { order: 2; border-right: 0; border-top: 1px solid var(--rule); }
+  .pane-view { order: 1; padding: 12px; }
+  .pane-read { order: 3; border-left: 0; border-top: 1px solid var(--rule); }
+  .viewport { aspect-ratio: 16 / 9; flex: 0 0 auto; min-height: 0; }
+  .rack, .readout { flex: 0 0 auto; overflow: visible; }
+  .readout-empty { padding: 32px 24px; }
+  /* Let the status readings wrap instead of scrolling the backend out of sight. */
+  .statusbar { flex-wrap: wrap; height: auto; gap: 6px 18px; overflow: visible; }
+  .stat-end { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .strip-progress::after { width: 100%; }
+}

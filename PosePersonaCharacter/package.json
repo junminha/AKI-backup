@@ -1,0 +1,20 @@
+{
+  "name": "kinetic-avatar-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-assets": "node scripts/copy-mediapipe-assets.mjs",
+    "dev": "npm run prepare-assets && vite",
+    "build": "npm run prepare-assets && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/noto-sans-kr": "^5.3.0",
+    "@mediapipe/tasks-vision": "1.0.1",
+    "@phosphor-icons/web": "2.1.2"
+  },
+  "devDependencies": {
+    "vite": "8.2.2"
+  }
+}

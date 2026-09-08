@@ -1,0 +1,28 @@
+# Nested repository metadata
+**/.git/
+
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/build/
+**/out/
+**/output/
+**/coverage/
+**/.next/
+**/.vite/
+**/.playwright-cli/
+**/*.tsbuildinfo
+
+# Local secrets and certificates
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
+# Local noise
+**/*.log
+**/.DS_Store
+**/Thumbs.db

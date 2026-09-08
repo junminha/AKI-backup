@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediaPipe Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">MediaPipe Bench</span>
+    <span class="brand-sub">브라우저 안에서 도는 비전 모델 8개</span>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-camera" class="btn btn-primary" type="button">카메라 켜기</button>
+    <button id="btn-mirror" class="btn" type="button" aria-pressed="true">거울 <kbd>M</kbd></button>
+    <button id="btn-snap" class="btn" type="button" disabled>스냅샷</button>
+  </div>
+</header>
+
+<main class="bench">
+
+  <!-- ── 채널 랙 ───────────────────────────────────────────── -->
+  <section class="pane pane-rack" aria-label="채널 랙">
+    <div class="pane-head">
+      <h2 class="pane-title">채널</h2>
+      <p class="pane-note">숫자키 <kbd>1</kbd>~<kbd>8</kbd></p>
+    </div>
+    <div id="rack" class="rack"></div>
+    <div class="rack-foot">
+      <button id="btn-alloff" class="btn btn-wide" type="button">전부 끄기</button>
+      <p class="rack-hint">모델은 처음 켤 때만 내려받습니다. 끈 뒤 다시 켜면 바로 붙습니다.</p>
+    </div>
+  </section>
+
+  <!-- ── 뷰포트 ────────────────────────────────────────────── -->
+  <section class="pane pane-view" aria-label="카메라 뷰포트">
+    <div class="viewport" id="viewport">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+
+      <div class="vp-state" id="vp-idle">
+        <p class="vp-state-title">카메라가 꺼져 있습니다</p>
+        <p class="vp-state-body">영상은 이 브라우저 안에서만 처리됩니다. 어디로도 올라가지 않습니다.</p>
+        <button class="btn btn-primary" type="button" data-camera-start>카메라 켜기</button>
+      </div>
+
+      <div class="vp-state vp-state-error" id="vp-error" hidden>
+        <p class="vp-state-title" id="vp-error-title">카메라를 열지 못했습니다</p>
+        <p class="vp-state-body" id="vp-error-body"></p>
+        <button class="btn" type="button" data-camera-start>다시 시도</button>
+      </div>
+    </div>
+
+    <div class="statusbar" id="statusbar">
+      <span class="stat"><span class="stat-k">FPS</span><span class="stat-v" id="s-fps">0.0</span></span>
+      <span class="stat"><span class="stat-k">해상도</span><span class="stat-v" id="s-res">0×0</span></span>
+      <span class="stat"><span class="stat-k">추론</span><span class="stat-v" id="s-ms">0.0 ms</span></span>
+      <span class="stat"><span class="stat-k">활성 채널</span><span class="stat-v" id="s-active">0 / 8</span></span>
+      <span class="stat stat-end"><span class="stat-k">백엔드</span><span class="stat-v" id="s-backend">WASM</span></span>
+    </div>
+  </section>
+
+  <!-- ── 리드아웃 ──────────────────────────────────────────── -->
+  <section class="pane pane-read" aria-label="리드아웃">
+    <div class="pane-head">
+      <h2 class="pane-title">리드아웃</h2>
+      <p class="pane-note" id="read-count">0개 채널</p>
+    </div>
+    <div id="readout" class="readout" aria-live="polite"></div>
+    <div class="readout-empty" id="readout-empty">
+      <p>켜진 채널이 없습니다.<br>왼쪽 랙에서 하나 켜면 여기에 숫자가 흐릅니다.</p>
+    </div>
+  </section>
+
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

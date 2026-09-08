@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121615" />
+    <link rel="icon" href="/assets/character-rig-master-v2.png" />
+    <meta
+      name="description"
+      content="MediaPipe 포즈 추적으로 움직이는 커스텀 2D 아바타 스튜디오"
+    />
+    <title>Kinetic Avatar Lab</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#studio" aria-label="Kinetic Avatar Lab 홈">
+          <span class="brand-mark" aria-hidden="true">K</span>
+          <span>
+            <strong>Kinetic</strong>
+            <small>Avatar Lab</small>
+          </span>
+        </a>
+
+        <div class="topbar-center" aria-live="polite">
+          <span class="status-indicator" id="model-status-indicator"></span>
+          <span id="model-status">모션 엔진을 준비하는 중</span>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="icon-button" id="theme-toggle" type="button" aria-label="화면 테마 변경">
+            <i class="ph ph-sun" aria-hidden="true"></i>
+          </button>
+          <button class="button button-secondary compact" id="save-profile" type="button">
+            <i class="ph ph-floppy-disk" aria-hidden="true"></i>
+            설정 저장
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace" id="studio">
+        <aside class="panel source-panel" aria-labelledby="source-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Input</p>
+              <h1 id="source-title">카메라</h1>
+            </div>
+            <span class="connection-label" id="camera-state">연결 안 됨</span>
+          </div>
+
+          <div class="camera-frame" id="camera-frame" data-active="false">
+            <video id="camera-video" playsinline muted></video>
+            <canvas id="pose-overlay" aria-hidden="true"></canvas>
+            <div class="camera-empty" id="camera-empty">
+              <i class="ph ph-camera" aria-hidden="true"></i>
+              <strong>카메라를 연결하세요</strong>
+              <span>영상은 브라우저 밖으로 전송되지 않습니다.</span>
+            </div>
+          </div>
+
+          <button class="button button-primary full" id="camera-button" type="button">
+            <i class="ph ph-video-camera" aria-hidden="true"></i>
+            <span>카메라 시작</span>
+          </button>
+
+          <label class="field camera-select-wrap" for="camera-select">
+            <span>입력 장치</span>
+            <select id="camera-select" disabled>
+              <option value="">기본 카메라</option>
+            </select>
+          </label>
+
+          <div class="signal-grid" aria-label="추적 상태">
+            <div>
+              <span>추적 품질</span>
+              <strong id="quality-value">데모</strong>
+            </div>
+            <div>
+              <span>추론 시간</span>
+              <strong id="inference-value">-</strong>
+            </div>
+            <div>
+              <span>프레임</span>
+              <strong id="fps-value">60</strong>
+            </div>
+          </div>
+
+          <div class="privacy-note">
+            <i class="ph ph-shield-check" aria-hidden="true"></i>
+            <p><strong>로컬 처리</strong><br />카메라 프레임은 기기 안에서만 분석됩니다.</p>
+          </div>
+        </aside>
+
+        <section class="stage-column" aria-labelledby="stage-title">
+          <div class="stage-toolbar">
+            <div>
+              <span class="stage-mode" id="stage-mode">데모 모션</span>
+              <h2 id="stage-title">캐릭터 스테이지</h2>
+            </div>
+            <div class="stage-meta">
+              <span id="tracking-message">카메라 없이 움직임을 미리 보는 중</span>
+            </div>
+          </div>
+
+          <div class="avatar-stage" id="avatar-stage">
+            <canvas
+              id="avatar-canvas"
+              width="900"
+              height="1100"
+              aria-label="관절 추적 캐릭터 미리보기"
+            ></canvas>
+            <div class="stage-loading" id="stage-loading" aria-live="polite">
+              <div class="loading-character" aria-hidden="true"></div>
+              <span>캐릭터 파츠를 준비하는 중</span>
+            </div>
+          </div>
+
+          <div class="stage-actions" aria-label="스테이지 동작">
+            <button class="button button-secondary" id="demo-button" type="button" aria-pressed="true">
+              <i class="ph ph-person-simple-run" aria-hidden="true"></i>
+              데모 멈춤
+            </button>
+            <button class="button button-secondary" id="calibrate-button" type="button" disabled>
+              <i class="ph ph-crosshair" aria-hidden="true"></i>
+              중심 맞추기
+            </button>
+            <button class="button button-secondary" id="snapshot-button" type="button">
+              <i class="ph ph-download-simple" aria-hidden="true"></i>
+              PNG 저장
+            </button>
+          </div>
+        </section>
+
+        <aside class="panel custom-panel" aria-labelledby="custom-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Customize</p>
+              <h2 id="custom-title">캐릭터 편집</h2>
+            </div>
+            <button class="text-button" id="reset-button" type="button">초기화</button>
+          </div>
+
+          <section class="control-section" aria-labelledby="avatar-title">
+            <div class="section-title-row">
+              <h3 id="avatar-title">아바타</h3>
+              <span id="active-avatar-name">오리지널</span>
+            </div>
+            <div class="avatar-grid" id="avatar-grid">
+              <button class="avatar-choice is-selected" data-avatar="original" type="button" aria-pressed="true">
+                <img src="/assets/character-rig-master-v3-transparent.png" alt="" />
+                <span>오리지널</span>
+              </button>
+              <button class="avatar-choice" data-avatar="retro-toy" type="button" aria-pressed="false">
+                <img src="/assets/avatars/retro-toy/master.png" alt="" />
+                <span>레트로 토이</span>
+              </button>
+              <button class="avatar-choice" data-avatar="joseon-guardian" type="button" aria-pressed="false">
+                <img src="/assets/avatars/joseon-guardian/master.png" alt="" />
+                <span>천문 수호자</span>
+              </button>
+              <button class="avatar-choice" data-avatar="deep-sea" type="button" aria-pressed="false">
+                <img src="/assets/avatars/deep-sea/master.png" alt="" />
+                <span>심해 탐사대</span>
+              </button>
+              <button class="avatar-choice" data-avatar="forest-guardian" type="button" aria-pressed="false">
+                <img src="/assets/avatars/forest-guardian/master.png" alt="" />
+                <span>숲의 수호자</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="control-section" aria-labelledby="preset-title">
+            <h3 id="preset-title">컬러 프리셋</h3>
+            <div class="preset-grid">
+              <button class="preset is-selected" data-preset="original" type="button">
+                <span class="swatch swatch-original" aria-hidden="true"></span>오리지널
+              </button>
+              <button class="preset" data-preset="arctic" type="button">
+                <span class="swatch swatch-arctic" aria-hidden="true"></span>아틱
+              </button>
+              <button class="preset" data-preset="ember" type="button">
+                <span class="swatch swatch-ember" aria-hidden="true"></span>엠버
+              </button>
+              <button class="preset" data-preset="mono" type="button">
+                <span class="swatch swatch-mono" aria-hidden="true"></span>모노
+              </button>
+            </div>
+          </section>
+
+          <section class="control-section" aria-labelledby="part-title">
+            <div class="section-title-row">
+              <h3 id="part-title">편집 부위</h3>
+              <span id="active-part-name">전체</span>
+            </div>
+            <div class="part-grid" id="part-grid">
+              <button class="part-chip is-selected" data-part="all" type="button">전체</button>
+              <button class="part-chip" data-part="head" type="button">머리</button>
+              <button class="part-chip" data-part="torso" type="button">몸통</button>
+              <button class="part-chip" data-part="pelvis" type="button">골반</button>
+              <button class="part-chip" data-part="leftArm" type="button">왼팔</button>
+              <button class="part-chip" data-part="rightArm" type="button">오른팔</button>
+              <button class="part-chip" data-part="hands" type="button">손</button>
+              <button class="part-chip" data-part="leftLeg" type="button">왼다리</button>
+              <button class="part-chip" data-part="rightLeg" type="button">오른다리</button>
+              <button class="part-chip" data-part="feet" type="button">발</button>
+            </div>
+            <div class="part-upload-row">
+              <input id="part-image-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+              <button class="button button-secondary" id="part-image-button" type="button" disabled>
+                <i class="ph ph-image" aria-hidden="true"></i>
+                선택 부위에 이미지 적용
+              </button>
+              <button class="text-button" id="clear-part-image" type="button" disabled>이미지 해제</button>
+            </div>
+          </section>
+
+          <section class="control-section sliders" aria-label="부위 색상 조절">
+            <label class="range-field" for="hue-control">
+              <span>색조 <output id="hue-output">0°</output></span>
+              <input id="hue-control" type="range" min="0" max="360" value="0" />
+            </label>
+            <label class="range-field" for="saturation-control">
+              <span>채도 <output id="saturation-output">100%</output></span>
+              <input id="saturation-control" type="range" min="0" max="180" value="100" />
+            </label>
+            <label class="range-field" for="brightness-control">
+              <span>밝기 <output id="brightness-output">100%</output></span>
+              <input id="brightness-control" type="range" min="55" max="145" value="100" />
+            </label>
+            <label class="range-field" for="opacity-control">
+              <span>표시 <output id="opacity-output">100%</output></span>
+              <input id="opacity-control" type="range" min="0" max="100" value="100" />
+            </label>
+          </section>
+
+          <section class="control-section motion-section" aria-labelledby="motion-title">
+            <h3 id="motion-title">모션 설정</h3>
+            <label class="range-field" for="smoothing-control">
+              <span>움직임 안정화 <output id="smoothing-output">72%</output></span>
+              <input id="smoothing-control" type="range" min="0" max="95" value="72" />
+            </label>
+            <label class="range-field" for="motion-control">
+              <span>동작 크기 <output id="motion-output">100%</output></span>
+              <input id="motion-control" type="range" min="60" max="140" value="100" />
+            </label>
+            <div class="toggle-list">
+              <label class="toggle-row">
+                <span><strong>거울 모드</strong><small>화면과 캐릭터를 같은 방향으로 표시</small></span>
+                <input id="mirror-toggle" type="checkbox" checked />
+              </label>
+              <label class="toggle-row">
+                <span><strong>관절 가이드</strong><small>카메라 위에 인식 뼈대를 표시</small></span>
+                <input id="skeleton-toggle" type="checkbox" checked />
+              </label>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
