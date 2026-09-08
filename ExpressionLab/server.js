@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const app = express();
 const port = Number(process.env.PORT || 8788);
-const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const serverFile = fileURLToPath(import.meta.url);
+const projectRoot = path.dirname(serverFile);
 const isProduction = process.env.NODE_ENV === "production";
 
 // ── 비용 방어 설정 ─────────────────────────────────────────────────────
@@ -345,15 +346,19 @@ app.use((error, _request, response, _next) => {
   response.status(status).json({ error: message });
 });
 
-const server = app.listen(port, "127.0.0.1", () => {
-  console.log(`표정연구소 API ready at http://127.0.0.1:${port}`);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === serverFile) {
+  const server = app.listen(port, "127.0.0.1", () => {
+    console.log(`표정연구소 API ready at http://127.0.0.1:${port}`);
+  });
 
-// EXPRESS-DOS-001: 느린 연결이 소켓을 붙잡지 못하도록 타임아웃을 명시한다.
-server.headersTimeout = 20_000;
-server.requestTimeout = 40_000;
-server.keepAliveTimeout = 10_000;
-server.on("clientError", (error, socket) => {
-  console.error("Client connection error", error?.code);
-  if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
-});
+  // EXPRESS-DOS-001: 느린 연결이 소켓을 붙잡지 못하도록 타임아웃을 명시한다.
+  server.headersTimeout = 20_000;
+  server.requestTimeout = 40_000;
+  server.keepAliveTimeout = 10_000;
+  server.on("clientError", (error, socket) => {
+    console.error("Client connection error", error?.code);
+    if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+  });
+}
+
+export default app;
