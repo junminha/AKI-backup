@@ -1,33 +1,57 @@
-import type { JointPose, LivePose } from './types'
+import { SCORED_JOINTS } from './types'
+import type { JointPose, LivePose, ScoredJoint, TrackedJoint } from './types'
 
 export function angleDistance(a: number, b: number) {
   return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
 }
 
-function relativeAngle(angle: number, reference: number) {
+export function relativeAngle(angle: number, reference: number) {
   return Math.atan2(Math.sin(angle - reference), Math.cos(angle - reference))
 }
 
+/**
+ * Every joint is measured against its parent, so the score reads the shape of
+ * the pose rather than where the player happens to stand. The same table
+ * places joints the camera cannot see, which keeps the avatar on screen and
+ * the score talking about the same body.
+ */
+export const JOINT_CHAIN: Record<TrackedJoint, { parent: keyof JointPose; tolerance: number }> = {
+  headTilt: { parent: 'bodyLean', tolerance: 0.7 },
+  leftUpperArm: { parent: 'bodyLean', tolerance: 1.15 },
+  leftForearm: { parent: 'leftUpperArm', tolerance: 1.22 },
+  rightUpperArm: { parent: 'bodyLean', tolerance: 1.15 },
+  rightForearm: { parent: 'rightUpperArm', tolerance: 1.22 },
+  leftUpperLeg: { parent: 'bodyLean', tolerance: 0.82 },
+  leftLowerLeg: { parent: 'leftUpperLeg', tolerance: 0.92 },
+  rightUpperLeg: { parent: 'bodyLean', tolerance: 0.82 },
+  rightLowerLeg: { parent: 'rightUpperLeg', tolerance: 0.92 },
+}
+
+function jointMatch(live: JointPose, target: JointPose, joint: TrackedJoint) {
+  const { parent, tolerance } = JOINT_CHAIN[joint]
+  const actual = relativeAngle(live[joint], live[parent])
+  const expected = relativeAngle(target[joint], target[parent])
+  return Math.max(0, 1 - angleDistance(actual, expected) / tolerance)
+}
+
+/** The joints on screen right now — the only ones the wall is judged on. */
+export function judgedJoints(live: LivePose): ScoredJoint[] {
+  return SCORED_JOINTS.filter((joint) => live.tracked[joint])
+}
+
 export function calculateFitScore(live: LivePose, target: JointPose) {
-  const comparisons: [number, number, number][] = [
-    [relativeAngle(live.leftUpperArm, live.bodyLean), relativeAngle(target.leftUpperArm, target.bodyLean), 1.15],
-    [relativeAngle(live.leftForearm, live.leftUpperArm), relativeAngle(target.leftForearm, target.leftUpperArm), 1.22],
-    [relativeAngle(live.rightUpperArm, live.bodyLean), relativeAngle(target.rightUpperArm, target.bodyLean), 1.15],
-    [relativeAngle(live.rightForearm, live.rightUpperArm), relativeAngle(target.rightForearm, target.rightUpperArm), 1.22],
-    [relativeAngle(live.leftUpperLeg, live.bodyLean), relativeAngle(target.leftUpperLeg, target.bodyLean), 0.82],
-    [relativeAngle(live.leftLowerLeg, live.leftUpperLeg), relativeAngle(target.leftLowerLeg, target.leftUpperLeg), 0.92],
-    [relativeAngle(live.rightUpperLeg, live.bodyLean), relativeAngle(target.rightUpperLeg, target.bodyLean), 0.82],
-    [relativeAngle(live.rightLowerLeg, live.rightUpperLeg), relativeAngle(target.rightLowerLeg, target.rightUpperLeg), 0.92],
-  ]
-  const joints = comparisons.reduce((sum, [actual, expected, tolerance]) => {
-    return sum + Math.max(0, 1 - angleDistance(actual, expected) / tolerance)
-  }, 0) / comparisons.length
-  const head = Math.max(0, 1 - angleDistance(
-    relativeAngle(live.headTilt, live.bodyLean),
-    relativeAngle(target.headTilt, target.bodyLean),
-  ) / 0.7)
-  const confidence = Math.min(1, Math.max(0.68, live.confidence))
-  return Math.round((joints * 0.94 + head * 0.06) * confidence * 100)
+  const judged = judgedJoints(live)
+  if (judged.length === 0) return 0
+
+  const joints = judged.reduce((sum, joint) => sum + jointMatch(live, target, joint), 0) / judged.length
+  const headWeight = live.tracked.headTilt ? 0.06 : 0
+  const head = headWeight > 0 ? jointMatch(live, target, 'headTilt') : 0
+  const shape = joints * (1 - headWeight) + head * headWeight
+
+  // A clean read of half a body is not a worse read, so tracking quality only
+  // trims the score once it is genuinely poor.
+  const quality = Math.min(1, Math.max(0, (live.confidence - 0.35) / 0.4))
+  return Math.round(shape * (0.82 + 0.18 * quality) * 100)
 }
 
 export function averageRecentScores(samples: { time: number; score: number }[], now: number, windowMs = 520) {

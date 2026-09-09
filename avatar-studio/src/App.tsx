@@ -757,6 +757,30 @@ function App() {
                   <p>3초 후 목표 포즈가 공개됩니다</p>
                 </motion.div>
               )}
+              {studioMode === 'challenge' && challengePhase === 'running' && (
+                <motion.div
+                  className={`challenge-live-countdown ${timeLeft <= 2 ? 'urgent' : ''}`}
+                  initial={reduceMotion ? false : { opacity: 0, scale: .9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={reduceMotion ? {} : { opacity: 0, scale: .9 }}
+                  aria-hidden="true"
+                >
+                  <svg viewBox="0 0 84 84">
+                    <circle className="live-ring-track" cx="42" cy="42" r="37" />
+                    <circle
+                      className="live-ring-progress"
+                      cx="42"
+                      cy="42"
+                      r="37"
+                      style={{ strokeDashoffset: 232.478 * (1 - Math.max(0, Math.min(1, timeLeft / challengeDurationSeconds))) }}
+                    />
+                  </svg>
+                  <div className="live-countdown-figure">
+                    <strong>{Math.max(0, Math.ceil(timeLeft))}</strong>
+                    <em>초</em>
+                  </div>
+                </motion.div>
+              )}
             </AnimatePresence>
             {webcamEnabled && (
               <Suspense fallback={<div className="webcam-preview loading"><div className="webcam-status"><VideoCamera /><span>추적 엔진 불러오는 중</span></div></div>}>

@@ -1,17 +1,17 @@
 # 포즈팝
 
-웹캠 또는 업로드한 사진 위에 MediaPipe 스켈레톤을 표시하고, Groq Vision API가 포즈 이름과 한마디를 만듭니다. 사용자가 원할 때만 OpenAI API로 같은 포즈의 캐릭터 이미지를 생성하는 웹앱입니다.
+웹캠 또는 업로드한 사진 위에 MediaPipe 스켈레톤을 표시하고, OpenRouter Vision API가 포즈 이름과 한마디를 만듭니다. 사용자가 원할 때만 OpenRouter 이미지 모델로 같은 포즈의 캐릭터 이미지를 생성하는 웹앱입니다.
 
 ## 실행
 
 1. `.env` 파일에 두 API 키를 입력합니다.
 
 ```env
-GROQ_API_KEY=여기에_Groq_API_키
-OPENAI_API_KEY=여기에_OpenAI_API_키
+OPENROUTER_API_KEY=여기에_OpenRouter_API_키
+OPENROUTER_IMAGE_MODEL=google/gemini-2.5-flash-image
 ```
 
-Groq 키는 포즈 분석에 필요합니다. OpenAI 키는 선택형 이미지 생성에만 필요합니다.
+OpenRouter 키 하나로 포즈 분석과 이미지 생성을 모두 처리합니다.
 2. 의존성을 설치합니다.
 
 ```bash
@@ -31,7 +31,7 @@ npm run dev
 ## 비용을 줄인 방식
 
 - MediaPipe 포즈 추적은 브라우저에서 처리합니다.
-- 분석 버튼을 누르면 현재 화면 한 장을 최대 960px JPEG로 압축하고 관절 특징과 함께 Groq로 보냅니다.
+- 분석 버튼을 누르면 현재 화면 한 장을 최대 960px JPEG로 압축하고 관절 특징과 함께 OpenRouter로 보냅니다.
 - 포즈 분석은 `qwen/qwen3.6-27b`와 JSON 모드를 사용합니다.
 - 이미지 생성은 `gpt-image-2`, `quality: low`, WebP 압축을 사용합니다.
 - 이미지 생성 API는 결과에서 `이미지 만들기`를 누른 경우에만 호출됩니다.
@@ -41,4 +41,4 @@ npm run dev
 
 - 카메라는 `localhost` 또는 HTTPS 환경에서만 정상 작동합니다.
 - 프로덕션에서는 API 서버에 요청 제한과 사용자 인증을 추가하는 편이 안전합니다.
-- Groq와 OpenAI API 키는 프런트엔드 코드에 넣지 마세요. 이 프로젝트는 서버의 `.env`에서만 읽습니다.
+- OpenRouter API 키는 프런트엔드 코드에 넣지 마세요. 이 프로젝트는 서버의 `.env`에서만 읽습니다.

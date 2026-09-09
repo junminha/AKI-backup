@@ -3,7 +3,6 @@ import {
   ArrowClockwise,
   Camera,
   CheckCircle,
-  Database,
   Eye,
   FileImage,
   Gauge,
@@ -22,7 +21,13 @@ import {
   FaceLandmarker,
   FilesetResolver,
 } from "@mediapipe/tasks-vision";
-import { faceQuality, readFrame, signature, summarize, toPayload } from "./face";
+import { faceQuality, readFrame, summarize, toPayload } from "./face";
+import {
+  freezeCamera,
+  getPrimaryCameraAction,
+  isPrimaryCameraActionDisabled,
+  resumeCamera,
+} from "./cameraPlayback";
 
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
@@ -31,8 +36,6 @@ const WASM_URL =
 
 const MAX_PHOTO_SIZE = 12 * 1024 * 1024;
 const SAMPLE_WINDOW = 24; // 계측에 사용할 최근 프레임 수
-const COOLDOWN_MS = 6000; // Groq 실호출 후 쉬는 시간
-const CACHE_MAX = 30; // 브라우저에 남기는 판독 캐시 개수
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const percent = (value) => `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
@@ -70,7 +73,7 @@ async function postJson(url, body) {
   return data;
 }
 
-// 정밀 모드에서만 쓰는 캡처. 640px로 줄여 전송 토큰을 최소화한다.
+// 판독용 캡처. 640px로 줄여 전송 크기를 줄인다.
 function captureImage(source, mode) {
   const width = mode === "photo" ? source?.naturalWidth : source?.videoWidth;
   const height = mode === "photo" ? source?.naturalHeight : source?.videoHeight;
@@ -85,7 +88,7 @@ function captureImage(source, mode) {
   return canvas.toDataURL("image/jpeg", 0.7);
 }
 
-// 개발 전용 데모 데이터. `?demo=1`로 열면 Groq 호출 없이 판독서 레이아웃을 확인할 수 있다.
+// 개발 전용 데모 데이터. `?demo=1`로 열면 OpenRouter 호출 없이 판독서 레이아웃을 확인할 수 있다.
 // 프로덕션 빌드에서는 import.meta.env.DEV가 false라 아예 동작하지 않는다.
 const DEMO = {
   result: {
@@ -112,8 +115,6 @@ const DEMO = {
     confidence: 0.92,
     caution: "표정 신호일 뿐 속마음의 증거는 아닙니다",
     tokens: 1147,
-    cached: true,
-    source: "local",
   },
   report: {
     intensity: 0.61,
@@ -151,12 +152,9 @@ export default function App() {
   const runRef = useRef(0);
   const sourceModeRef = useRef("camera");
   const photoUrlRef = useRef("");
-  const cacheRef = useRef(new Map());
-  const cooldownTimerRef = useRef(0);
 
   const [phase, setPhase] = useState("booting");
   const [sourceMode, setSourceMode] = useState("camera");
-  const [precise, setPrecise] = useState(false);
   const [photoUrl, setPhotoUrl] = useState("");
   const [countdown, setCountdown] = useState(null);
   const [faceReady, setFaceReady] = useState(false);
@@ -164,9 +162,6 @@ export default function App() {
   const [live, setLive] = useState(null);
   const [report, setReport] = useState(null);
   const [result, setResult] = useState(null);
-  const [usage, setUsage] = useState({ calls: 0, cacheHits: 0, limit: 0 });
-  const [localHits, setLocalHits] = useState(0);
-  const [cooldown, setCooldown] = useState(0);
   const [error, setError] = useState("");
 
   // 얼굴 윤곽선만 얇게 그린다. 조밀한 메시는 계측 화면을 가린다.
@@ -323,7 +318,6 @@ export default function App() {
       cancelled = true;
       runRef.current += 1;
       cancelAnimationFrame(animationRef.current);
-      clearInterval(cooldownTimerRef.current);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       videoLandmarkerRef.current?.close();
       imageLandmarkerRef.current?.close();
@@ -340,28 +334,6 @@ export default function App() {
     setPhase("done");
   }, []);
 
-  // 서버가 집계한 오늘 사용량을 한 번 읽어 온다.
-  useEffect(() => {
-    fetch("/api/health")
-      .then((response) => response.json())
-      .then((data) => data?.usage && setUsage(data.usage))
-      .catch(() => {});
-  }, []);
-
-  const startCooldown = () => {
-    clearInterval(cooldownTimerRef.current);
-    setCooldown(Math.round(COOLDOWN_MS / 1000));
-    cooldownTimerRef.current = setInterval(() => {
-      setCooldown((value) => {
-        if (value <= 1) {
-          clearInterval(cooldownTimerRef.current);
-          return 0;
-        }
-        return value - 1;
-      });
-    }, 1000);
-  };
-
   const clearResult = () => {
     setCountdown(null);
     setResult(null);
@@ -372,47 +344,31 @@ export default function App() {
   const analyzeReport = async (measured, runId) => {
     setReport(measured);
 
-    // 1차 절약: 같은 표정이면 브라우저 캐시에서 바로 꺼낸다. 네트워크 요청조차 하지 않는다.
-    const key = `${signature(measured)}|${precise ? "hi" : "lo"}`;
-    const cached = cacheRef.current.get(key);
-    if (cached) {
-      setLocalHits((value) => value + 1);
-      setResult({ ...cached, cached: true, source: "local" });
-      setPhase("done");
-      return;
-    }
-
     try {
       setPhase("analyzing");
-      const body = { report: toPayload(measured) };
-
-      // 2차 절약: 이미지는 정밀 모드에서만 붙인다. 기본은 수치만 보낸다.
-      if (precise) {
-        const mode = sourceModeRef.current;
-        body.image = captureImage(mode === "photo" ? photoRef.current : videoRef.current, mode);
-      }
+      const mode = sourceModeRef.current;
+      const body = {
+        report: toPayload(measured),
+        image: captureImage(mode === "photo" ? photoRef.current : videoRef.current, mode),
+      };
 
       const analysis = await postJson("/api/analyze", body);
       if (runRef.current !== runId) return;
 
-      cacheRef.current.set(key, analysis);
-      while (cacheRef.current.size > CACHE_MAX) {
-        cacheRef.current.delete(cacheRef.current.keys().next().value);
-      }
-
-      if (analysis.usage) setUsage(analysis.usage);
-      setResult({ ...analysis, source: analysis.cached ? "server" : "groq" });
+      setResult(analysis);
       setPhase("done");
-      if (!analysis.cached) startCooldown();
     } catch (caught) {
       if (runRef.current !== runId) return;
+      if (sourceModeRef.current === "camera") {
+        await resumeCamera(videoRef.current);
+      }
       setError(caught.message);
       setPhase("ready");
     }
   };
 
   const startMeasure = async () => {
-    if (!faceReady || cooldown > 0) return;
+    if (!faceReady) return;
     if (["measuring", "analyzing", "photo-loading"].includes(phase)) return;
 
     const runId = runRef.current + 1;
@@ -435,8 +391,10 @@ export default function App() {
     }
 
     setCountdown(null);
+    freezeCamera(videoRef.current);
     const measured = summarize(framesRef.current);
     if (!measured) {
+      await resumeCamera(videoRef.current);
       setError("표정을 계측하지 못했어요. 얼굴이 화면에 들어오게 한 뒤 다시 시도해 주세요.");
       setPhase("ready");
       return;
@@ -532,13 +490,43 @@ export default function App() {
     }
   };
 
-  const reset = () => {
+  const reset = async () => {
     runRef.current += 1;
     clearResult();
+
+    if (sourceMode === "camera") {
+      const resumed = await resumeCamera(videoRef.current);
+      if (!resumed) {
+        setFaceReady(false);
+        setLive(null);
+        setError("카메라 화면을 다시 시작하지 못했어요. 페이지를 새로고침해 주세요.");
+        setPhase("camera-error");
+        return;
+      }
+    }
+
     setPhase(sourceMode === "camera" && !videoLandmarkerRef.current ? "camera-error" : "ready");
   };
 
+  const handlePrimaryAction = () => {
+    if (primaryAction === "resume") {
+      void reset();
+      return;
+    }
+
+    void startMeasure();
+  };
+
   const busy = ["measuring", "analyzing", "photo-loading"].includes(phase);
+  const primaryAction = getPrimaryCameraAction({
+    sourceMode,
+    hasResult: Boolean(result),
+  });
+  const primaryActionDisabled = isPrimaryCameraActionDisabled({
+    action: primaryAction,
+    faceReady,
+    busy,
+  });
   const shownReport = report ?? live;
   const meterUnits = (shownReport?.allUnits ?? [])
     .filter((unit) => unit.code !== "AU45")
@@ -551,12 +539,10 @@ export default function App() {
     "camera-error": "사진 업로드를 이용해 주세요",
     ready: faceReady ? "계측 준비 완료" : hint,
     measuring: "표정을 그대로 유지해 주세요",
-    analyzing: precise ? "Groq 정밀 판독 중" : "Groq 판독 중 (수치 전송)",
-    done: result?.cached ? "캐시에서 불러온 판독" : "판독 완료",
+    analyzing: "OpenRouter 판독 중",
+    done: "판독 완료",
     error: "계측 모델을 준비하지 못했어요",
   }[phase];
-
-  const savedCalls = localHits + (usage.cacheHits ?? 0);
 
   return (
     <main className="app-shell">
@@ -578,12 +564,7 @@ export default function App() {
         <div className="topbar-meta">
           <span className="meta-chip">
             <LockKey weight="bold" aria-hidden="true" />
-            {precise ? "수치 + 축소 이미지 전송" : "수치만 전송 · 이미지 미전송"}
-          </span>
-          <span className="meta-chip">
-            <Database weight="bold" aria-hidden="true" />
-            Groq 호출 {usage.calls}
-            {usage.limit ? `/${usage.limit}` : ""} · 절약 {savedCalls}
+            AU 수치 + 640px 이미지만 전송 · 저장하지 않음
           </span>
         </div>
       </header>
@@ -667,8 +648,8 @@ export default function App() {
             {phase === "analyzing" && (
               <div className="stage-message">
                 <Waveform weight="duotone" />
-                <strong>Groq가 계측값을 읽는 중</strong>
-                <span>{precise ? "AU 수치와 640px 이미지를 함께 보냈어요." : "이미지 없이 AU 수치만 보냈어요."}</span>
+                <strong>OpenRouter가 계측값을 읽는 중</strong>
+                <span>AU 수치와 640px 이미지를 함께 보냈어요.</span>
               </div>
             )}
           </div>
@@ -706,16 +687,6 @@ export default function App() {
             </div>
 
             <div className="actions">
-              <label className={`mode-toggle ${precise ? "on" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={precise}
-                  onChange={(event) => setPrecise(event.target.checked)}
-                  disabled={busy}
-                />
-                <span>{precise ? "정밀 모드" : "절약 모드"}</span>
-              </label>
-
               <input
                 ref={fileInputRef}
                 className="file-input"
@@ -744,19 +715,17 @@ export default function App() {
                 <button
                   className="primary-button"
                   type="button"
-                  onClick={startMeasure}
-                  disabled={!faceReady || busy || cooldown > 0}
+                  onClick={handlePrimaryAction}
+                  disabled={primaryActionDisabled}
                 >
                   <Sparkle weight="fill" />
                   {busy
                     ? "진행 중"
-                    : cooldown > 0
-                      ? `${cooldown}초 후 가능`
-                      : sourceMode === "photo"
-                        ? "이 사진 판독"
-                        : result
-                          ? "다시 판독"
-                          : "3초 계측 후 판독"}
+                    : sourceMode === "photo"
+                      ? "이 사진 판독"
+                      : primaryAction === "resume"
+                        ? "다시 판독하기"
+                        : "3초 계측 후 판독"}
                 </button>
               )}
             </div>
@@ -774,12 +743,6 @@ export default function App() {
               <section className="verdict">
                 <div className="verdict-top">
                   <span className="kicker">판정</span>
-                  {result.cached && (
-                    <span className="cache-badge">
-                      <Database weight="fill" />
-                      {result.source === "local" ? "브라우저 캐시" : "서버 캐시"} · 호출 0
-                    </span>
-                  )}
                 </div>
                 <h2>{result.expression}</h2>
                 <p>{result.summary}</p>
@@ -866,8 +829,8 @@ export default function App() {
               {result.caution && <p className="caution">※ {result.caution}</p>}
 
               <div className="readout-foot">
-                <button className="ghost-button" type="button" onClick={reset}>
-                  <ArrowClockwise weight="bold" /> 새로 판독
+                <button className="ghost-button" type="button" onClick={() => void reset()}>
+                  <ArrowClockwise weight="bold" /> 다시 판독하기
                 </button>
                 {result.tokens ? <span className="token-note">{result.tokens} tokens</span> : null}
               </div>
@@ -880,7 +843,7 @@ export default function App() {
               <h2>계측이 먼저,<br />판독은 그다음.</h2>
               <p>
                 브라우저가 눈썹·눈꺼풀·볼·입술의 움직임을 FACS Action Unit으로 재고,
-                그 수치만 Groq로 보내 표정을 판독합니다.
+                그 수치와 축소한 화면 한 장을 OpenRouter로 보내 표정을 판독합니다.
               </p>
               <ol className="steps">
                 <li><b>1</b> 얼굴을 화면 안에 맞춥니다</li>

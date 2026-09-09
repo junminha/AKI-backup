@@ -20,19 +20,20 @@ Never commit the local `.env` files.
 
 ### ExpressionLab
 
-- `GROQ_API_KEY` (required)
-- `GROQ_VISION_MODEL` (optional)
-- `GROQ_DAILY_LIMIT` (optional)
-- `GROQ_RATE_WINDOW_MS` (optional)
-- `GROQ_RATE_MAX` (optional)
+- `OPENROUTER_API_KEY` (required)
+- `OPENROUTER_VISION_MODEL` (optional)
+- `OPENROUTER_SITE_URL` (optional)
+- `OPENROUTER_APP_NAME` (optional)
 - `ENABLE_HSTS=true` (recommended for production)
 
 ### PosePop
 
-- `GROQ_API_KEY` (required for analysis)
+- `OPENROUTER_API_KEY` (required for analysis)
 - `OPENAI_API_KEY` (required for image generation)
-- `GROQ_VISION_MODEL` (optional)
+- `OPENROUTER_VISION_MODEL` (optional)
 - `OPENAI_IMAGE_MODEL` (optional)
+- `OPENROUTER_SITE_URL` (optional)
+- `OPENROUTER_APP_NAME` (optional)
 
 Vercel supplies `PORT` and `NODE_ENV`; do not copy the local `PORT` value.
 

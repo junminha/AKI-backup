@@ -1,9 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import OpenAI from "openai";
-import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,13 +10,6 @@ const port = Number(process.env.PORT || 8788);
 const serverFile = fileURLToPath(import.meta.url);
 const projectRoot = path.dirname(serverFile);
 const isProduction = process.env.NODE_ENV === "production";
-
-// ── 비용 방어 설정 ─────────────────────────────────────────────────────
-const DAILY_LIMIT = Number(process.env.GROQ_DAILY_LIMIT || 120);
-const RATE_WINDOW_MS = Number(process.env.GROQ_RATE_WINDOW_MS || 60_000);
-const RATE_MAX = Number(process.env.GROQ_RATE_MAX || 8);
-const CACHE_MAX = 200;
-const CACHE_TTL_MS = 30 * 60 * 1000;
 
 // EXPRESS-FINGERPRINT-001 / EXPRESS-HEADERS-001:
 // 서버 종류를 숨기고 필수 보안 헤더를 붙인다.
@@ -53,81 +44,84 @@ app.use(
 );
 
 // EXPRESS-PROXY-001: 로컬 실행 기준이므로 프록시 헤더를 신뢰하지 않는다.
-// 리버스 프록시 뒤에 배포한다면 이 값을 실제 홉 수로 바꿔야 rate limit이 정확해진다.
 app.set("trust proxy", false);
-
-// EXPRESS-AUTH-001 / EXPRESS-DOS-001: 분석 엔드포인트에 요청 상한을 건다.
-const analyzeLimiter = rateLimit({
-  windowMs: RATE_WINDOW_MS,
-  limit: RATE_MAX,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: { error: "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.", code: "rate_limited" },
-});
 
 // EXPRESS-BODY-001: 본문 파서는 필요한 라우트에만, 명시적 상한과 함께 붙인다.
 const analyzeBody = express.json({ limit: "900kb" });
 
-function requireGroqKey(_request, response, next) {
-  if (!process.env.GROQ_API_KEY) {
+// HTTP 헤더 값에는 Latin-1 문자만 넣을 수 있다. 한글이 들어가면 요청을 만들기도 전에
+// fetch가 TypeError를 던지므로, ASCII가 아니면 안전한 기본값으로 되돌린다.
+function asciiHeader(value, fallback) {
+  const text = String(value ?? "").trim();
+  return text && /^[ -~]+$/.test(text) ? text : fallback;
+}
+
+function requireOpenRouterKey(_request, response, next) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return response.status(503).json({
-      error: ".env의 GROQ_API_KEY를 먼저 입력해 주세요.",
-      code: "missing_groq_api_key",
+      error: ".env의 OPENROUTER_API_KEY를 먼저 입력해 주세요.",
+      code: "missing_openrouter_api_key",
     });
   }
   next();
 }
 
-function groqClient() {
+function openRouterClient() {
   return new OpenAI({
-    apiKey: process.env.GROQ_API_KEY,
-    baseURL: "https://api.groq.com/openai/v1",
-    timeout: 30_000,
-    maxRetries: 1,
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: "https://openrouter.ai/api/v1",
+    // OpenRouter 앱 랭킹용 헤더. 없어도 동작하지만 대시보드에서 출처를 구분해 준다.
+    defaultHeaders: {
+      "HTTP-Referer": asciiHeader(process.env.OPENROUTER_SITE_URL, "https://facegroq.vercel.app"),
+      "X-Title": asciiHeader(process.env.OPENROUTER_APP_NAME, "Expression Lab"),
+    },
+    // Vercel 함수 상한이 60초다. 재시도까지 하면 30초 × 2 = 60초로 상한에 부딪혀
+    // 함수가 강제 종료되고 원인 없는 500이 된다. 한 번만 시도하고 여유를 준다.
+    // 재시도까지 두 번 시도해도 Vercel 함수 상한 60초 안에 끝나야 한다.
+    timeout: 25_000,
+    maxRetries: 0,
   });
 }
 
-function groqErrorMessage(error) {
-  if (error?.status === 401) return "Groq API 키를 확인해 주세요.";
-  if (error?.status === 413) return "전송한 이미지가 너무 큽니다. 절약 모드로 다시 시도해 주세요.";
-  if (error?.status === 429) return "Groq 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.";
-  return "Groq가 표정을 판독하는 중 문제가 생겼습니다.";
+// 실패 원인을 한 단어로 분류한다. 응답 본문을 그대로 흘리지 않으면서도
+// 어디서 깨졌는지(상류 4xx/5xx · 타임아웃 · JSON 파싱 · 키 누락)는 알 수 있게 한다.
+function classifyError(error) {
+  if (error instanceof SyntaxError) return "bad_json";
+  if (error?.message === "missing_keys") return "missing_keys";
+  if (error?.status) return `upstream_${error.status}`;
+  const name = error?.name || "";
+  if (name.includes("Timeout") || error?.code === "ETIMEDOUT") return "timeout";
+  if (name.includes("Connection") || error?.code === "ECONNRESET") return "connection";
+  return "unknown";
 }
 
-// ── 하루 사용량 집계 ────────────────────────────────────────────────────
-const usage = { day: new Date().toDateString(), calls: 0, cacheHits: 0 };
-
-function rollDay() {
-  const today = new Date().toDateString();
-  if (usage.day !== today) {
-    usage.day = today;
-    usage.calls = 0;
-    usage.cacheHits = 0;
+// OpenRouter는 같은 모델이라도 요청마다 다른 provider로 라우팅한다. 그중 일부가
+// 드물게 JSON이 아닌 응답이나 키가 빠진 응답을 돌려주므로, 그때만 한 번 더 시도한다.
+// 인증·크레딧·요청 형식 오류는 다시 보내도 같은 결과라 즉시 포기한다.
+async function completeJson(create, isValid) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const completion = await create();
+      const parsed = JSON.parse(completion.choices[0]?.message?.content || "{}");
+      if (!isValid(parsed)) throw new Error("missing_keys");
+      return { completion, parsed };
+    } catch (error) {
+      lastError = error;
+      const reason = classifyError(error);
+      const worthRetrying = reason === "bad_json" || reason === "missing_keys" || error?.status >= 500;
+      if (!worthRetrying) break;
+    }
   }
+  throw lastError;
 }
 
-// ── 판독 결과 캐시 ─────────────────────────────────────────────────────
-// 같은 표정 계측값이 다시 들어오면 Groq를 부르지 않고 이전 판독을 돌려준다.
-const cache = new Map();
-
-function cacheGet(key) {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.at > CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  // 최근 사용 항목을 뒤로 보내 LRU를 유지한다.
-  cache.delete(key);
-  cache.set(key, entry);
-  return entry.value;
-}
-
-function cacheSet(key, value) {
-  cache.set(key, { value, at: Date.now() });
-  while (cache.size > CACHE_MAX) {
-    cache.delete(cache.keys().next().value);
-  }
+function openRouterErrorMessage(error) {
+  if (error?.status === 401) return "OpenRouter API 키를 확인해 주세요.";
+  if (error?.status === 402) return "OpenRouter 크레딧이 부족합니다. 잔액을 충전해 주세요.";
+  if (error?.status === 413) return "전송한 이미지가 너무 큽니다. 더 작은 사진으로 다시 시도해 주세요.";
+  if (error?.status === 429) return "OpenRouter 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.";
+  return `OpenRouter가 표정을 판독하는 중 문제가 생겼습니다. (${classifyError(error)})`;
 }
 
 // ── 입력 검증 (EXPRESS-INPUT-001: 모든 요청 본문은 신뢰하지 않는다) ────
@@ -196,17 +190,13 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 app.get("/api/health", (_request, response) => {
-  rollDay();
   response.json({
     ok: true,
-    groqConfigured: Boolean(process.env.GROQ_API_KEY),
-    usage: { calls: usage.calls, cacheHits: usage.cacheHits, limit: DAILY_LIMIT },
+    openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
   });
 });
 
-app.post("/api/analyze", analyzeLimiter, requireGroqKey, analyzeBody, async (request, response) => {
-  rollDay();
-
+app.post("/api/analyze", requireOpenRouterKey, analyzeBody, async (request, response) => {
   const report = cleanReport(request.body?.report);
   const image = cleanImage(request.body?.image);
 
@@ -217,26 +207,6 @@ app.post("/api/analyze", analyzeLimiter, requireGroqKey, analyzeBody, async (req
     return response.status(400).json({ error: "이미지 형식이 올바르지 않습니다." });
   }
 
-  // 1차 절약: 서버 캐시. 같은 계측값이면 Groq를 부르지 않는다.
-  const key = crypto
-    .createHash("sha256")
-    .update(JSON.stringify({ report, withImage: Boolean(image) }))
-    .digest("hex");
-
-  const hit = cacheGet(key);
-  if (hit) {
-    usage.cacheHits += 1;
-    return response.json({ ...hit, cached: true, usage: { calls: usage.calls, cacheHits: usage.cacheHits, limit: DAILY_LIMIT } });
-  }
-
-  // 2차 절약: 하루 호출 상한. 넘으면 API를 아예 호출하지 않는다.
-  if (usage.calls >= DAILY_LIMIT) {
-    return response.status(429).json({
-      error: `오늘 Groq 호출 한도(${DAILY_LIMIT}회)를 모두 썼습니다. .env의 GROQ_DAILY_LIMIT을 조정하세요.`,
-      code: "daily_limit_reached",
-    });
-  }
-
   const content = [
     {
       type: "text",
@@ -244,28 +214,30 @@ app.post("/api/analyze", analyzeLimiter, requireGroqKey, analyzeBody, async (req
 ${JSON.stringify(report)}`,
     },
   ];
-  // 3차 절약: 이미지는 정밀 모드에서만 붙는다. 기본 절약 모드는 수치만 보낸다.
   if (image) content.push({ type: "image_url", image_url: { url: image } });
 
   try {
-    const completion = await groqClient().chat.completions.create({
-      model: process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b",
-      reasoning_effort: "none",
-      temperature: 0.4,
-      top_p: 0.85,
-      max_completion_tokens: 420,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content },
-      ],
-    });
-
-    usage.calls += 1;
-    const parsed = JSON.parse(completion.choices[0]?.message?.content || "{}");
-    if (!parsed.expression || !parsed.summary) {
-      throw new Error("Groq response did not match the expected format");
-    }
+    const client = openRouterClient();
+    const { completion, parsed } = await completeJson(
+      () =>
+        client.chat.completions.create({
+          model: process.env.OPENROUTER_VISION_MODEL || "qwen/qwen3.6-27b",
+          // OpenRouter는 reasoning_effort 대신 reasoning 객체로 사고 토큰을 끈다.
+          reasoning: { enabled: false },
+          // JSON 모드를 실제로 지원하는 provider로만 라우팅한다. 지원하지 않는
+          // provider에 걸리면 설명문이 섞여 와서 파싱이 깨진다.
+          provider: { require_parameters: true },
+          temperature: 0.4,
+          top_p: 0.85,
+          max_tokens: 420,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content },
+          ],
+        }),
+      (value) => Boolean(value?.expression && value?.summary),
+    );
 
     const clampScore = (value) =>
       isFiniteNumber(value) ? Number(Math.min(1, Math.max(0, value)).toFixed(2)) : 0;
@@ -306,16 +278,19 @@ ${JSON.stringify(report)}`,
       tokens: completion.usage?.total_tokens ?? null,
     };
 
-    cacheSet(key, result);
-    response.json({
-      ...result,
-      cached: false,
-      usage: { calls: usage.calls, cacheHits: usage.cacheHits, limit: DAILY_LIMIT },
-    });
+    response.json(result);
   } catch (error) {
-    console.error("Groq expression analysis failed", error);
+    // 상류 오류는 status/이름/본문이 각각 다른 곳에 담긴다. 셋 다 남겨야 원인을 좁힐 수 있다.
+    console.error("OpenRouter expression analysis failed", {
+      reason: classifyError(error),
+      name: error?.name,
+      status: error?.status,
+      message: error?.message,
+      body: error?.error ?? error?.response?.data,
+    });
     response.status(error?.status && error.status < 600 ? error.status : 500).json({
-      error: groqErrorMessage(error),
+      error: openRouterErrorMessage(error),
+      code: classifyError(error),
     });
   }
 });

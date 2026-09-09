@@ -12,8 +12,32 @@ export interface JointPose {
   rightLowerLeg: number
 }
 
+/** The joints the wall is scored against. */
+export const SCORED_JOINTS = [
+  'leftUpperArm',
+  'leftForearm',
+  'rightUpperArm',
+  'rightForearm',
+  'leftUpperLeg',
+  'leftLowerLeg',
+  'rightUpperLeg',
+  'rightLowerLeg',
+] as const
+
+export type ScoredJoint = (typeof SCORED_JOINTS)[number]
+
+export type TrackedJoint = ScoredJoint | 'headTilt'
+
+/**
+ * Which joints the camera can actually see. A webcam on a desk usually cuts
+ * off the legs, and MediaPipe still reports guessed coordinates for them, so
+ * the game only scores and only draws the joints marked here.
+ */
+export type TrackedParts = Record<TrackedJoint, boolean>
+
 export interface LivePose extends JointPose {
   confidence: number
+  tracked: TrackedParts
 }
 
 export interface PoseChallenge {
@@ -53,6 +77,7 @@ export interface GameHud {
   countdown: number
   cameraReady: boolean
   distance: number
+  judged: number
 }
 
 export interface GameRecord {

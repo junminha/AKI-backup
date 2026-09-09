@@ -594,7 +594,10 @@ button {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* 생성 이미지는 816x816 정사각인데 이 박스는 정사각이 아니다. cover로 채우면
+     "full body"로 뽑은 캐릭터의 머리나 발이 잘린다. 전신이 보이도록 contain을 쓴다.
+     이미지 배경이 --surface와 거의 같은 차콜이라 여백은 눈에 띄지 않는다. */
+  object-fit: contain;
 }
 
 .image-loading {

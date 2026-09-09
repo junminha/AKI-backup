@@ -1,7 +1,7 @@
 // 브라우저 안에서 끝내는 표정 계측 모듈.
 // MediaPipe FaceLandmarker가 내놓는 478개 랜드마크와 52개 블렌드셰이프를
 // FACS(Facial Action Coding System) 기반 지표로 압축한다.
-// Groq에는 이 압축 결과만 보내므로 토큰 사용량이 크게 줄어든다.
+// OpenRouter에는 이 압축 결과만 보내므로 토큰 사용량이 크게 줄어든다.
 
 // ── FACS Action Unit ↔ ARKit 블렌드셰이프 매핑 ──────────────────────────
 // 각 AU는 여러 블렌드셰이프의 최댓값 또는 평균으로 추정한다.
@@ -183,7 +183,7 @@ function expressionIntensity(units) {
 
 /**
  * 로컬에서 계산하는 정서가(valence)·각성도(arousal) 추정치.
- * Groq에 정답으로 주는 값이 아니라 참고 좌표로 함께 보낸다.
+ * OpenRouter에 정답으로 주는 값이 아니라 참고 좌표로 함께 보낸다.
  */
 function affect(units) {
   const positive = units.AU6 * 0.9 + units.AU12 * 1.0;
@@ -208,7 +208,7 @@ function duchenne(units) {
 
 /**
  * 여러 프레임을 하나의 계측 리포트로 합친다.
- * active 이하 필드가 Groq로 가는 페이로드이고, allUnits는 화면 표시 전용이다.
+ * active 이하 필드가 OpenRouter로 가는 페이로드이고, allUnits는 화면 표시 전용이다.
  */
 export function summarize(frames) {
   const usable = frames.filter(Boolean);
@@ -232,7 +232,7 @@ export function summarize(frames) {
   const meanOf = (pick) =>
     round(usable.reduce((sum, frame) => sum + pick(frame), 0) / usable.length);
 
-  // 활성화된 AU만 추린다. 0에 가까운 값은 Groq에 보낼 이유가 없다.
+  // 활성화된 AU만 추린다. 0에 가까운 값은 OpenRouter에 보낼 이유가 없다.
   const active = ACTION_UNITS.filter(
     (unit) => units[unit.code] >= 0.12 && unit.code !== "AU45",
   )
@@ -266,7 +266,7 @@ export function summarize(frames) {
 
 /**
  * 캐시 키. AU 값을 0.1 단위로 양자화해 사실상 같은 표정을 같은 키로 묶는다.
- * 같은 표정을 다시 분석하면 Groq를 부르지 않고 이전 판독을 재사용한다.
+ * 같은 표정을 다시 분석하면 OpenRouter를 부르지 않고 이전 판독을 재사용한다.
  */
 export function signature(report) {
   if (!report) return "";
@@ -279,7 +279,7 @@ export function signature(report) {
 }
 
 /**
- * Groq로 보낼 페이로드만 골라낸다. allUnits 같은 화면 전용 필드는 제외한다.
+ * OpenRouter로 보낼 페이로드만 골라낸다. allUnits 같은 화면 전용 필드는 제외한다.
  */
 export function toPayload(report) {
   if (!report) return null;

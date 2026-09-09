@@ -1112,3 +1112,74 @@ legend { margin-bottom: 10px; color: #52605b; font-size: 11px; font-weight: 800;
   :root { --line: #65766f; }
   .control-panel, .stage-panel, .style-grid button, .motion-list > button { border-color: #65766f; }
 }
+
+/* 도전 진행 중(준비 3초 종료 후) 남은 5초를 캔버스 위에 표시.
+   웹캠 미리보기 반대편(좌측 상단)에 두고 클릭을 막지 않아 플레이를 가리지 않는다. */
+.challenge-live-countdown {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: clamp(74px, 15%, 100px);
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+.challenge-live-countdown::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: rgba(247, 255, 251, .84);
+  backdrop-filter: blur(3px);
+  box-shadow: 0 8px 22px rgba(19, 42, 34, .18);
+}
+.challenge-live-countdown svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.challenge-live-countdown circle {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.live-ring-track { stroke: rgba(9, 60, 45, .16); }
+.live-ring-progress {
+  stroke: var(--accent-strong);
+  stroke-dasharray: 232.478;
+  transition: stroke-dashoffset .1s linear, stroke .25s ease;
+}
+.live-countdown-figure {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  color: var(--ink);
+}
+.live-countdown-figure strong {
+  font-family: "Bahnschrift", sans-serif;
+  font-size: clamp(30px, 6.4vw, 42px);
+  line-height: 1;
+  letter-spacing: -.06em;
+}
+.live-countdown-figure em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  color: #5d6e66;
+}
+.challenge-live-countdown.urgent .live-ring-progress { stroke: #d7443a; }
+.challenge-live-countdown.urgent .live-countdown-figure strong { color: #d7443a; }
+.challenge-live-countdown.urgent::before { animation: countdown-pulse .9s ease-in-out infinite; }
+@keyframes countdown-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .challenge-live-countdown.urgent::before { animation: none; }
+  .live-ring-progress { transition: none; }
+}

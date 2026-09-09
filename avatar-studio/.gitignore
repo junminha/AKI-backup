@@ -6,3 +6,6 @@ vite.config.d.ts
 .DS_Store
 .playwright-cli/
 output/playwright/
+
+# Local Netlify folder
+.netlify

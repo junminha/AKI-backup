@@ -13,13 +13,14 @@ import {
   UserFocus,
   X,
 } from '@phosphor-icons/react'
-import { createDemoPose, neutralPose, poseChallenges } from './game/poses'
+import { countJudged, createDemoPose, neutralPose, noneTracked, poseForDisplay, poseChallenges } from './game/poses'
 import { averageRecentScores, calculateFitScore, roundPoints } from './game/scoring'
 import type { CameraStatus, GameHud, GameMode, GamePhase, GameRecord, GameStats, LivePose, PoseChallenge } from './game/types'
 import { renderGame, renderWallPreview } from './gameRenderer'
 
 const emptyStats: GameStats = { round: 0, score: 0, lives: 3, combo: 0, lastFit: 0, passed: null }
-const emptyHud: GameHud = { progress: 0, fit: 0, countdown: 3, cameraReady: false, distance: 12 }
+const emptyHud: GameHud = { progress: 0, fit: 0, countdown: 3, cameraReady: false, distance: 12, judged: 0 }
+const lostPose: LivePose = { ...neutralPose, confidence: 0.2, tracked: noneTracked }
 const RECORD_KEY = 'perfect-poses-records-v1'
 const WALLS_PER_RUN = 3
 const WebcamPose = lazy(() => import('./WebcamPose').then((module) => ({ default: module.WebcamPose })))
@@ -30,7 +31,7 @@ function pickRunChallenges(): PoseChallenge[] {
     const j = Math.floor(Math.random() * (i + 1))
     ;[pool[i], pool[j]] = [pool[j], pool[i]]
   }
-  // Keep the picked walls in pool order so difficulty still ramps up within a run.
+  // Keep the picked walls in pool order so a run reads the same way twice.
   return pool.slice(0, WALLS_PER_RUN).sort((a, b) => a.index - b.index).map((item) => item.challenge)
 }
 
@@ -169,12 +170,17 @@ function App() {
       const runWalls = runChallengesRef.current
       const challenge = runWalls[currentStats.round] ?? runWalls[0]
       const cameraReady = modeRef.current === 'demo' || (cameraStatusRef.current === 'ready' && livePoseRef.current !== null)
+      const targetPose = currentPhase === 'menu' ? runWalls[0].pose : challenge.pose
       const currentPose = currentPhase === 'menu'
         ? createDemoPose(runWalls[0].pose, now)
         : modeRef.current === 'demo'
         ? createDemoPose(challenge.pose, now)
-        : (livePoseRef.current ?? { ...neutralPose, confidence: 0.2 })
-      const fit = calculateFitScore(currentPose, currentPhase === 'menu' ? runWalls[0].pose : challenge.pose)
+        : (livePoseRef.current ?? lostPose)
+      // Score the joints the camera can see; draw the rest at the wall's own
+      // angle so the avatar and the verdict never disagree.
+      const fit = calculateFitScore(currentPose, targetPose)
+      const shownPose = poseForDisplay(currentPose, targetPose)
+      const judged = countJudged(currentPose)
       const elapsed = now - phaseStartRef.current
       const delta = Math.min(50, now - lastFrameRef.current)
       lastFrameRef.current = now
@@ -262,7 +268,7 @@ function App() {
         renderGame(canvas, {
           phase: currentPhase,
           progress,
-          pose: currentPose,
+          pose: shownPose,
           challenge,
           fit,
           passed: currentStats.passed,
@@ -271,7 +277,7 @@ function App() {
       }
       if (now - lastUiUpdate > 72) {
         lastUiUpdate = now
-        setHud({ progress, fit, countdown, cameraReady, distance: Math.max(0, 12 * (1 - progress)) })
+        setHud({ progress, fit, countdown, cameraReady, distance: Math.max(0, 12 * (1 - progress)), judged })
       }
       frameId = requestAnimationFrame(run)
     }
@@ -321,7 +327,7 @@ function App() {
             <div className="fit-meter">
               <div><span>POSE FIT</span><strong>{Math.round(hud.fit)}<em>%</em></strong></div>
               <div className="fit-track"><i style={{ width: `${Math.min(100, hud.fit)}%` }} /></div>
-              <small>통과 기준 {challenge.threshold}%</small>
+              <small>통과 기준 {challenge.threshold}%{mode === 'camera' && hud.judged > 0 && hud.judged < 8 ? ` · 보이는 관절 ${hud.judged}개로 판정` : ''}</small>
             </div>
             <div className="distance-meter">
               <span>DISTANCE</span><strong>{hud.distance.toFixed(1)}<em>m</em></strong>
